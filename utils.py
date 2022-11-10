@@ -28,8 +28,6 @@ def grad_y(x, y):
 
 def sgd(x, y, lr, conf):
     noise = level * np.random.uniform(-1,1)
-    print(y)
-    print(noise)
     x -= lr * grad_g(x, conf) + grad_c(x) * (y + lr * noise)**2
     y -= lr * grad_y(x, y)*(y + lr * noise)
     #print((y + lr * noise))
