@@ -4,84 +4,95 @@ from dataclasses import dataclass
 from tqdm import tqdm
 import copy
 
-level = 0.8
+level = 1.2
 
-def g(x, m, p):
-    return (m*(x-p)**2-m*p**2)
-
-def c(x):
-    return np.where(x<200, 100*(x+100)**2, 100*(200+100)**2)
-    
-def objective(x, conf):
-    return g(x, conf.m, conf.p)
-
-def grad_c(x):
-    return np.where(x<200, 200*(x+100), 200*(200+100))
-    
-def grad_g(x, conf):
-    m = conf.m
+def g(v, conf):
     p = conf.p
-    return 2*m*(x-p)
+    delta = conf.delta
+    return np.where(np.abs(v) < delta, -delta*p* np.exp(1-(1/(1-(v/delta)**2))), 0)
 
-def grad_y(x, y):
-    return 2*c(x)
+def f(v, conf):
+    return 0.5*(v-conf.p)**2 + g(v, conf)
 
-def sgd(x, y, lr, conf):
-    noise = level * np.random.uniform(-1,1)
-    x -= lr * grad_g(x, conf) + grad_c(x) * (y + lr * noise)**2
-    y -= lr * grad_y(x, y)*(y + lr * noise)
-    #print((y + lr * noise))
-    return x, y
+def grad(v, conf):
+    p = conf.p
+    delta = conf.delta
+    return np.where(np.abs(v) < delta ,(v-p) + ((2*v*p)/delta)*(1-(v/delta)**2)**(-2)*np.exp(1-(1/(1-(v/delta)**2))), (v-p))
 
-def averaged_sgd(x, x_ave, y, y_ave, lr, t, conf):
+def gd(x, lr, conf):
+    x -= lr * grad(x, conf)
+    return x
+
+def sgd(x, lr, conf, flag):
+    delta = conf.delta
+    if flag == 'l':
+        r = conf.r1
+    elif flag == 's':
+        r = conf.r2
+    noise = np.random.uniform(-r, r)
+    x -= lr * (grad(x, conf) + noise)
+    return x
+
+def averaged_sgd(x, x_ave, lr, t, conf, flag):
     beta = 1/(t+1)
-    noise = level * np.random.uniform(-1,1)
-    x -= lr * grad_g(x, conf) + grad_c(x) * (y + lr * noise)**2
-    y -= lr * grad_y(x, y)*(y + lr * noise)
+    delta = conf.delta
+    if flag == 'l':
+        r = conf.r1
+    elif flag == 's':
+        r = conf.r2
+    noise = np.random.uniform(-r, r)
+    x -= lr * (grad(x, conf) + noise)
     x_ave *= beta*t
     x_ave += beta*x
-    y_ave *= beta*t
-    y_ave += beta*x
-    return x, x_ave, y, y_ave
+    return x, x_ave
 
 
 def optimize(configs, opt):
     sol_list1 = []
-    sol_list2 = []
+    
     for i in tqdm(range(configs.sample_num)):
-        x = configs.init + 10 * np.random.randn()
-        y = 0
+        #x = configs.init + 10 * np.random.randn()
+        x = -1.0
         
         if 'Ave_SGD' in opt:
-            x_ave = copy.deepcopy(x)
-            y_ave = copy.deepcopy(y)
+            x_ave = copy.deepcopy(x)       
 
         if opt == 'SGD_large':            
-            for j in range(configs.iter_num):            
-                x, y = sgd(x, y, configs.lr_large, configs)
+            for j in range(configs.iter_num): 
+                flag = 'l'
+                x = sgd(x, configs.lr_large, configs, flag)
         elif opt == 'SGD_small':
-            for j in range(configs.iter_num):            
-                x, y = sgd(x, y, configs.lr_small, configs)
+            for j in range(configs.iter_num): 
+                flag = 's'
+                x = sgd(x, configs.lr_small, configs, flag)
         elif opt == 'Ave_SGD_large':
-            for j in range(configs.iter_num):            
-                x, x_ave, y, y_ave = averaged_sgd(x, x_ave, y, y_ave, configs.lr_large, j, configs)
+            for j in range(configs.iter_num):  
+                flag = 'l'
+                x, x_ave = averaged_sgd(x, x_ave, configs.lr_large, j, configs, flag)
         elif opt == 'Ave_SGD_small':
-            for j in range(configs.iter_num):            
-                x, x_ave, y, y_ave = averaged_sgd(x, x_ave, y, y_ave, configs.lr_small, j, configs)
-       
+            for j in range(configs.iter_num):  
+                flag = 's'
+                x, x_ave = averaged_sgd(x, x_ave, configs.lr_small, j, configs, flag)
+        elif opt == 'GD_large':
+            for j in range(configs.iter_num): 
+                x = gd(x, configs.lr_large, configs)
+        elif opt == 'GD_small':
+            for j in range(configs.iter_num): 
+                x = gd(x, configs.lr_small, configs)
+                
         else:
             print('opt is not define')
             
         if 'Ave_SGD' in opt:
             sol_list1.append(x_ave)
-            sol_list2.append(y_ave)
+          
         else:
             sol_list1.append(x)
-            sol_list2.append(y)
+         
     sol_arr1 = np.array(sol_list1)
-    sol_arr2 = np.array(sol_list2)
+   
     print('complete : ',opt)
-    return sol_arr1, sol_arr2
+    return sol_arr1
 
 @dataclass
 class config():
@@ -89,7 +100,8 @@ class config():
     iter_num: int = 100
     sample_num: int = 10
     lr_large: float = 0.1
-    lr_small: float = 0.00001
-    rho: float = 1.0
-    m: float = 5.0
+    lr_small: float = 0.01
     p: float = 10.0
+    delta: float = 0.1
+    r1: float = 1.0
+    r2: float = 10.0
